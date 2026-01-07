@@ -1,0 +1,12 @@
+{
+  "name": "local-stream-index",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.0",
+    "sql.js": "^1.13.0",
+    "sqlite3": "^5.1.7"
+  }
+}
