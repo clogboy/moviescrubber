@@ -1,14 +1,133 @@
 import http from "http";
+import fs from "fs";
+import path from "path";
 import { getLogs } from "./logger.js";
 import { getStats, getAllLinks } from "./db.js";
+import { takeScreenshot } from "./screenshot.js";
 
 export function startServer(port = 3000) {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
 
-    if (req.url === "/") {
+    // Frontend search interface
+    if (req.url === "/" || req.url === "/search") {
+      const htmlPath = path.resolve("public/index.html");
+      if (fs.existsSync(htmlPath)) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(fs.readFileSync(htmlPath));
+      } else {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Frontend not found. Make sure public/index.html exists.");
+      }
+      return;
+    }
+
+    // Dashboard (old interface)
+    if (req.url === "/dashboard") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(`
-<!doctype html>
+      res.end(getDashboardHTML());
+      return;
+    }
+
+    // API: Get all links
+    if (req.url === "/api/links") {
+      try {
+        const links = getAllLinks();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(links));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Take screenshot
+    if (req.url === "/api/screenshot" && req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => { body += chunk; });
+      req.on("end", async () => {
+        try {
+          const { url } = JSON.parse(body);
+          if (!url) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Missing url parameter" }));
+            return;
+          }
+
+          console.log(`Taking screenshot of: ${url}`);
+          const screenshotBase64 = await takeScreenshot(url);
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            screenshot: screenshotBase64,
+            url: url
+          }));
+        } catch (err) {
+          console.error("Screenshot error:", err.message);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+      return;
+    }
+
+    // Status
+    if (req.url === "/status") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        status: "ok",
+        time: Date.now()
+      }));
+      return;
+    }
+
+    // Logs
+    if (req.url === "/logs") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end(getLogs());
+      return;
+    }
+
+    // Stats
+    if (req.url === "/stats") {
+      try {
+        const stats = getStats();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(stats));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // Links (legacy endpoint)
+    if (req.url === "/links") {
+      try {
+        const links = getAllLinks();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(links));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    res.writeHead(404);
+    res.end("not found");
+  });
+
+  server.listen(port, () => {
+    console.log(`HTTP server listening on http://localhost:${port}`);
+    console.log(`- Search interface: http://localhost:${port}/`);
+    console.log(`- Dashboard: http://localhost:${port}/dashboard`);
+  });
+}
+
+// Dashboard HTML (kept for backwards compatibility)
+function getDashboardHTML() {
+  return `<!doctype html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,6 +154,14 @@ export function startServer(port = 3000) {
       color: #888;
       margin-bottom: 1em;
       font-size: 0.9em;
+    }
+    .nav {
+      margin-bottom: 1em;
+    }
+    .nav a {
+      color: #4a9eff;
+      text-decoration: none;
+      margin-right: 1em;
     }
     button {
       padding: 0.5em 1em;
@@ -200,6 +327,10 @@ export function startServer(port = 3000) {
     <h1>🎬 MovieScrubber Dashboard</h1>
     <div class="subtitle">v2.0 - Continuous 7-day cycle with dead link removal</div>
 
+    <div class="nav">
+      <a href="/">← Back to Search</a>
+    </div>
+
     <div class="tabs">
       <button class="tab active" onclick="showTab('overview')">Overview</button>
       <button class="tab" onclick="showTab('logs')">Logs</button>
@@ -289,7 +420,7 @@ export function startServer(port = 3000) {
                 <div class="value">\${stats.cycle.daysInCycle + 1}</div>
                 <div class="subtext">of 7 days</div>
               </div>
-              <div class="stat-card ${stats.cycle.needsReset ? 'warning' : 'success'}">
+              <div class="stat-card \${stats.cycle.needsReset ? 'warning' : 'success'}">
                 <h3>Status</h3>
                 <div class="value" style="font-size: 1.5em;">\${stats.cycle.needsReset ? 'Reset Due' : 'Active'}</div>
               </div>
@@ -353,55 +484,5 @@ export function startServer(port = 3000) {
     }, 5000);
   </script>
 </body>
-</html>
-      `);
-      return;
-    }
-
-    if (req.url === "/status") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        status: "ok",
-        time: Date.now()
-      }));
-      return;
-    }
-
-    if (req.url === "/logs") {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end(getLogs());
-      return;
-    }
-
-    if (req.url === "/stats") {
-      try {
-        const stats = getStats();
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(stats));
-      } catch (err) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: err.message }));
-      }
-      return;
-    }
-
-    if (req.url === "/links") {
-      try {
-        const links = getAllLinks();
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(links));
-      } catch (err) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: err.message }));
-      }
-      return;
-    }
-
-    res.writeHead(404);
-    res.end("not found");
-  });
-
-  server.listen(port, () => {
-    console.log(`HTTP server listening on http://localhost:${port}`);
-  });
+</html>`;
 }

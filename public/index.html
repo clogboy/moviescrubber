@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MovieScrubber - Search</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: #888;
+      font-size: 0.95rem;
+    }
+
+    .search-box {
+      position: relative;
+      margin-bottom: 2rem;
+    }
+
+    #searchInput {
+      width: 100%;
+      padding: 1rem 1.5rem;
+      font-size: 1.1rem;
+      background: #1a1a1a;
+      border: 2px solid #333;
+      border-radius: 12px;
+      color: #e0e0e0;
+      transition: all 0.3s;
+    }
+
+    #searchInput:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .search-stats {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding: 0.75rem 1rem;
+      background: #1a1a1a;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #888;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #888;
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .result-card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: all 0.3s;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .result-card:hover {
+      border-color: #667eea;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(102, 126, 234, 0.15);
+    }
+
+    .result-card.loading-screenshot {
+      opacity: 0.6;
+    }
+
+    .result-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .favicon {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+      border-radius: 4px;
+    }
+
+    .result-title {
+      flex: 1;
+      font-size: 1.1rem;
+      font-weight: 600;
+      line-height: 1.4;
+      color: #fff;
+    }
+
+    .result-meta {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      font-size: 0.85rem;
+    }
+
+    .meta-badge {
+      padding: 0.25rem 0.75rem;
+      background: #2a2a2a;
+      border-radius: 20px;
+      color: #888;
+    }
+
+    .result-domain {
+      color: #667eea;
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .screenshot-container {
+      margin-top: 1rem;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #333;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .screenshot-container img {
+      width: 100%;
+      display: block;
+      transition: transform 0.3s;
+    }
+
+    .screenshot-container:hover img {
+      transform: scale(1.05);
+    }
+
+    .screenshot-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .screenshot-container:hover .screenshot-overlay {
+      opacity: 1;
+    }
+
+    .screenshot-loading {
+      text-align: center;
+      padding: 2rem;
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    .btn-load-screenshot {
+      width: 100%;
+      padding: 0.75rem;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.3s;
+    }
+
+    .btn-load-screenshot:hover {
+      background: #764ba2;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: #666;
+    }
+
+    .empty-state-icon {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .loading {
+      animation: pulse 2s infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎬 MovieScrubber</h1>
+      <p class="subtitle">Search your streaming catalog</p>
+    </header>
+
+    <div class="search-box">
+      <input
+        type="text"
+        id="searchInput"
+        placeholder="Search for movies or shows..."
+        autocomplete="off"
+      >
+    </div>
+
+    <div id="searchStats" class="search-stats" style="display: none;">
+      <span id="resultCount">0 results</span>
+      <span id="searchTime"></span>
+    </div>
+
+    <div id="resultsContainer"></div>
+  </div>
+
+  <script>
+    let searchTimeout;
+    let allLinks = [];
+    let faviconCache = {};
+
+    // Load all links on startup
+    async function loadAllLinks() {
+      try {
+        const response = await fetch('/api/links');
+        allLinks = await response.json();
+        console.log(`Loaded ${allLinks.length} links`);
+        showEmptyState();
+      } catch (err) {
+        console.error('Failed to load links:', err);
+      }
+    }
+
+    // Search with debounce
+    function handleSearch() {
+      clearTimeout(searchTimeout);
+      const query = document.getElementById('searchInput').value.trim();
+
+      if (!query) {
+        showEmptyState();
+        return;
+      }
+
+      searchTimeout = setTimeout(() => {
+        performSearch(query);
+      }, 300); // 300ms debounce
+    }
+
+    // Perform search
+    function performSearch(query) {
+      const startTime = Date.now();
+      const lowerQuery = query.toLowerCase();
+
+      const results = allLinks.filter(link =>
+        link.title.toLowerCase().includes(lowerQuery) ||
+        link.domain.toLowerCase().includes(lowerQuery)
+      );
+
+      const searchTime = Date.now() - startTime;
+      displayResults(results, searchTime);
+    }
+
+    // Display results
+    function displayResults(results, searchTime) {
+      const container = document.getElementById('resultsContainer');
+      const stats = document.getElementById('searchStats');
+      const resultCount = document.getElementById('resultCount');
+      const searchTimeEl = document.getElementById('searchTime');
+
+      if (results.length === 0) {
+        container.innerHTML = \`
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <h3>No results found</h3>
+            <p>Try a different search term</p>
+          </div>
+        \`;
+        stats.style.display = 'none';
+        return;
+      }
+
+      stats.style.display = 'flex';
+      resultCount.textContent = \`\${results.length} result\${results.length !== 1 ? 's' : ''}\`;
+      searchTimeEl.textContent = \`\${searchTime}ms\`;
+
+      container.innerHTML = '<div class="results-grid"></div>';
+      const grid = container.querySelector('.results-grid');
+
+      results.forEach(link => {
+        const card = createResultCard(link);
+        grid.appendChild(card);
+      });
+    }
+
+    // Create result card
+    function createResultCard(link) {
+      const card = document.createElement('div');
+      card.className = 'result-card';
+      card.dataset.url = link.url;
+
+      const favicon = getFavicon(link.domain);
+      const type = link.type === 'movie' ? '🎬 Movie' : '📺 Show';
+
+      card.innerHTML = \`
+        <div class="result-header">
+          <img src="\${favicon}" class="favicon" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><rect width=%2224%22 height=%2224%22 fill=%22%23333%22/></svg>'">
+          <div class="result-title">\${escapeHtml(link.title)}</div>
+        </div>
+
+        <div class="result-meta">
+          <span class="meta-badge">\${type}</span>
+          <span class="meta-badge">\${link.domain}</span>
+        </div>
+
+        <button class="btn-load-screenshot" onclick="loadScreenshot(event, '\${link.url}')">
+          📸 Load Preview
+        </button>
+
+        <div id="screenshot-\${hashCode(link.url)}" class="screenshot-placeholder"></div>
+      \`;
+
+      return card;
+    }
+
+    // Load screenshot
+    window.loadScreenshot = async function(event, url) {
+      event.stopPropagation();
+      const button = event.target;
+      const hash = hashCode(url);
+      const placeholder = document.getElementById(\`screenshot-\${hash}\`);
+
+      button.disabled = true;
+      button.textContent = '⏳ Loading...';
+
+      try {
+        const response = await fetch('/api/screenshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+
+        if (!response.ok) throw new Error('Screenshot failed');
+
+        const data = await response.json();
+
+        button.remove();
+        placeholder.innerHTML = \`
+          <div class="screenshot-container" onclick="window.open('\${url}', '_blank')">
+            <img src="\${data.screenshot}" alt="Screenshot">
+            <div class="screenshot-overlay">
+              <div style="color: white; font-weight: bold;">↗ Open Link</div>
+            </div>
+          </div>
+        \`;
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = '❌ Failed - Try Again';
+        console.error('Screenshot error:', err);
+      }
+    };
+
+    // Get favicon URL (cached)
+    function getFavicon(domain) {
+      if (!faviconCache[domain]) {
+        faviconCache[domain] = \`https://www.google.com/s2/favicons?domain=\${domain}&sz=64\`;
+      }
+      return faviconCache[domain];
+    }
+
+    // Show empty state
+    function showEmptyState() {
+      const container = document.getElementById('resultsContainer');
+      const stats = document.getElementById('searchStats');
+
+      stats.style.display = 'none';
+      container.innerHTML = \`
+        <div class="empty-state">
+          <div class="empty-state-icon">🎬</div>
+          <h3>Start searching</h3>
+          <p>Type a movie or show name to find where it's streaming</p>
+        </div>
+      \`;
+    }
+
+    // Utility functions
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function hashCode(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash = hash & hash;
+      }
+      return Math.abs(hash);
+    }
+
+    // Initialize
+    document.getElementById('searchInput').addEventListener('input', handleSearch);
+    loadAllLinks();
+  </script>
+</body>
+</html>
