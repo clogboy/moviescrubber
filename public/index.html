@@ -386,11 +386,11 @@
         const response = await fetch('/api/links');
 
         if (!response.ok) {
-          throw new Error('HTTP ${response.status}: ${response.statusText}');
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         allLinks = await response.json();
-        debug('Loaded ${allLinks.length} links', allLinks[0]);
+        debug(`Loaded ${allLinks.length} links`, allLinks[0]);
         console.log('All links:', allLinks);
 
         if (allLinks.length === 0) {
@@ -427,14 +427,14 @@
       stats.style.display = 'none';
 
       if (topLinks.length === 0) {
-        container.innerHTML = '
+        container.innerHTML = `
           <div class="empty-state">
             <div class="empty-state-icon">🎬</div>
             <h3>No verified links yet</h3>
             <p>Database contains ${allLinks.length} links, but none have been verified as available.</p>
             <p style="margin-top: 1em; color: #888;">Run check mode to verify links</p>
           </div>
-        ';
+        `;
         return;
       }
 
@@ -467,7 +467,7 @@
       const startTime = Date.now();
       const lowerQuery = query.toLowerCase();
 
-      debug('Searching for: "${query}" in ${allLinks.length} links');
+      debug(`Searching for: "${query}" in ${allLinks.length} links`);
 
       const results = allLinks.filter(link =>
         link.title.toLowerCase().includes(lowerQuery) ||
@@ -475,7 +475,7 @@
       );
 
       const searchTime = Date.now() - startTime;
-      console.log('Found ${results.length} results in ${searchTime}ms');
+      console.log(`Found ${results.length} results in ${searchTime}ms`);
       displayResults(results, searchTime);
     }
 
@@ -487,20 +487,20 @@
       const searchTimeEl = document.getElementById('searchTime');
 
       if (results.length === 0) {
-        container.innerHTML = '
+        container.innerHTML = `
           <div class="empty-state">
             <div class="empty-state-icon">🔍</div>
             <h3>No results found</h3>
             <p>Try a different search term</p>
           </div>
-        ';
+        `;
         stats.style.display = 'none';
         return;
       }
 
       stats.style.display = 'flex';
-      resultCount.textContent = '${results.length} result${results.length !== 1 ? 's' : ''}';
-      searchTimeEl.textContent = '${searchTime}ms';
+      resultCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
+      searchTimeEl.textContent = `${searchTime}ms`;
 
       container.innerHTML = '<div class="results-grid"></div>';
       const grid = container.querySelector('.results-grid');
@@ -521,7 +521,7 @@
       const type = link.type === 'movie' ? '🎬 Movie' : '📺 Show';
       const popularBadge = isPopular ? '<span class="meta-badge popular">🔥 Popular</span>' : '';
 
-      card.innerHTML = '
+      card.innerHTML = `
         <div class="result-header">
           <img src="${favicon}" class="favicon" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><rect width=%2224%22 height=%2224%22 fill=%22%23333%22/></svg>'">
           <div class="result-title">${escapeHtml(link.title)}</div>
@@ -538,7 +538,7 @@
         </button>
 
         <div id="screenshot-${hashCode(link.url)}" class="screenshot-placeholder"></div>
-      ';
+      `;
 
       return card;
     }
@@ -548,7 +548,7 @@
       event.stopPropagation();
       const button = event.target;
       const hash = hashCode(url);
-      const placeholder = document.getElementById('screenshot-${hash}');
+      const placeholder = document.getElementById(`screenshot-${hash}`);
 
       button.disabled = true;
       button.textContent = '⏳ Loading screenshot...';
@@ -573,14 +573,14 @@
         console.log('Screenshot received, size:', data.screenshot.length);
 
         button.remove();
-        placeholder.innerHTML = '
+        placeholder.innerHTML = `
           <div class="screenshot-container" onclick="window.open('${escapeAttr(url)}', '_blank')">
             <img src="${data.screenshot}" alt="Screenshot">
             <div class="screenshot-overlay">
               <div style="color: white; font-weight: bold;">↗ Open Link</div>
             </div>
           </div>
-        ';
+        `;
       } catch (err) {
         console.error('Screenshot error:', err);
         button.disabled = false;
@@ -591,7 +591,7 @@
     // Get favicon URL (cached)
     function getFavicon(domain) {
       if (!faviconCache[domain]) {
-        faviconCache[domain] = 'https://www.google.com/s2/favicons?domain=${domain}&sz=64';
+        faviconCache[domain] = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
       }
       return faviconCache[domain];
     }
@@ -602,7 +602,7 @@
       const stats = document.getElementById('searchStats');
 
       stats.style.display = 'none';
-      container.innerHTML = '
+      container.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">⚠️</div>
           <h3>Error loading links</h3>
@@ -611,7 +611,7 @@
             <a href="/dashboard" style="color: #667eea;">Check the dashboard</a>
           </p>
         </div>
-      ';
+      `;
     }
 
     // Utility functions
