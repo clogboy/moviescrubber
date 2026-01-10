@@ -12,10 +12,9 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "puppeteer": "^24.15.0",
     "sql.js": "^1.13.0"
   },
   "engines": {
     "node": ">=18.0.0"
   }
-}
+}`

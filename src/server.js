@@ -3,7 +3,6 @@ import fs from "fs";
 import path from "path";
 import { getLogs } from "./logger.js";
 import { getStats, getAllLinks } from "./db.js";
-import { takeScreenshot } from "./screenshot.js";
 
 export function startServer(port = 3000) {
   const server = http.createServer(async (req, res) => {
@@ -72,36 +71,6 @@ export function startServer(port = 3000) {
       return;
     }
 
-    // API: Take screenshot
-    if (req.url === "/api/screenshot" && req.method === "POST") {
-      let body = "";
-      req.on("data", chunk => { body += chunk; });
-      req.on("end", async () => {
-        try {
-          const { url } = JSON.parse(body);
-          if (!url) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Missing url parameter" }));
-            return;
-          }
-
-          console.log(`Taking screenshot of: ${url}`);
-          const screenshotBase64 = await takeScreenshot(url);
-
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            screenshot: screenshotBase64,
-            url: url
-          }));
-        } catch (err) {
-          console.error("Screenshot error:", err.message);
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: err.message }));
-        }
-      });
-      return;
-    }
-
     // Status
     if (req.url === "/status") {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -156,7 +125,7 @@ export function startServer(port = 3000) {
   });
 }
 
-// Dashboard HTML with database viewer
+// Dashboard HTML with database viewer (removed screenshot routes)
 function getDashboardHTML() {
   return `<!doctype html>
 <html>
@@ -394,7 +363,7 @@ function getDashboardHTML() {
 <body>
   <div class="container">
     <h1>🎬 MovieScrubber Dashboard</h1>
-    <div class="subtitle">v2.0 - Continuous 7-day cycle with dead link removal</div>
+    <div class="subtitle">v2.0 - Continuous 7-day cycle with smart filters</div>
 
     <div class="nav">
       <a href="/">← Back to Search</a>
@@ -489,7 +458,8 @@ function getDashboardHTML() {
         <table>
           <thead>
             <tr>
-              <th>Title</th>
+              <th>Search Title</th>
+              <th>Page Title</th>
               <th>Type</th>
               <th>Domain</th>
               <th>Status</th>
@@ -500,6 +470,7 @@ function getDashboardHTML() {
             \${links.map(link => \`
               <tr>
                 <td><strong>\${escapeHtml(link.title)}</strong></td>
+                <td>\${link.page_title ? escapeHtml(link.page_title) : '<em style="color: #666;">n/a</em>'}</td>
                 <td>\${link.type === 'movie' ? '🎬' : '📺'} \${link.type}</td>
                 <td>\${link.domain}</td>
                 <td>\${getStatusBadge(link)}</td>
@@ -532,6 +503,7 @@ function getDashboardHTML() {
 
       const filtered = allDatabaseLinks.filter(link =>
         link.title.toLowerCase().includes(query) ||
+        (link.page_title && link.page_title.toLowerCase().includes(query)) ||
         link.domain.toLowerCase().includes(query) ||
         link.url.toLowerCase().includes(query)
       );
@@ -577,6 +549,7 @@ function getDashboardHTML() {
           <div class="highlight">
             <strong>How it works:</strong> Each run queries 100 new titles from Trakt's popular list.
             After 7 days, the cycle resets and starts over. Dead links are removed before each search.
+            Page titles from Google are saved for better search accuracy.
           </div>
 
           <div class="section">
