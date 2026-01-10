@@ -38,6 +38,16 @@
       font-size: 0.95rem;
     }
 
+    .nav {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .nav a {
+      color: #667eea;
+      text-decoration: none;
+    }
+
     .search-box {
       position: relative;
       margin-bottom: 2rem;
@@ -218,6 +228,15 @@
       margin-bottom: 1rem;
     }
 
+    .debug-info {
+      background: #1a1a1a;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border-radius: 8px;
+      border-left: 4px solid #f44336;
+      font-size: 0.9rem;
+    }
+
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
@@ -234,6 +253,12 @@
       <h1>🎬 MovieScrubber</h1>
       <p class="subtitle">Search your streaming catalog</p>
     </header>
+
+    <div class="nav">
+      <a href="/dashboard">→ Dashboard</a>
+    </div>
+
+    <div id="debugInfo" class="debug-info" style="display: none;"></div>
 
     <div class="search-box">
       <input
@@ -257,15 +282,40 @@
     let allLinks = [];
     let faviconCache = {};
 
+    // Debug function
+    function debug(message, data = null) {
+      console.log('[DEBUG]', message, data);
+      const debugDiv = document.getElementById('debugInfo');
+      debugDiv.style.display = 'block';
+      debugDiv.innerHTML = '<strong>Debug:</strong> ' + message +
+        (data ? '<br><pre>' + JSON.stringify(data, null, 2).substring(0, 200) + '...</pre>' : '');
+    }
+
     // Load all links on startup
     async function loadAllLinks() {
       try {
+        debug('Fetching links from /api/links...');
         const response = await fetch('/api/links');
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
         allLinks = await response.json();
-        console.log(`Loaded ${allLinks.length} links`);
+        debug(`Loaded ${allLinks.length} links`, allLinks[0]);
+        console.log('All links:', allLinks);
+
+        if (allLinks.length === 0) {
+          debug('⚠️ No links in database. Run search mode first!');
+        } else {
+          document.getElementById('debugInfo').style.display = 'none';
+        }
+
         showEmptyState();
       } catch (err) {
         console.error('Failed to load links:', err);
+        debug('❌ Error loading links: ' + err.message);
+        showErrorState(err.message);
       }
     }
 
@@ -281,7 +331,7 @@
 
       searchTimeout = setTimeout(() => {
         performSearch(query);
-      }, 300); // 300ms debounce
+      }, 300);
     }
 
     // Perform search
@@ -289,12 +339,15 @@
       const startTime = Date.now();
       const lowerQuery = query.toLowerCase();
 
+      debug(`Searching for: "${query}" in ${allLinks.length} links`);
+
       const results = allLinks.filter(link =>
         link.title.toLowerCase().includes(lowerQuery) ||
         link.domain.toLowerCase().includes(lowerQuery)
       );
 
       const searchTime = Date.now() - startTime;
+      console.log(`Found ${results.length} results in ${searchTime}ms`);
       displayResults(results, searchTime);
     }
 
@@ -306,20 +359,20 @@
       const searchTimeEl = document.getElementById('searchTime');
 
       if (results.length === 0) {
-        container.innerHTML = \`
+        container.innerHTML = `
           <div class="empty-state">
             <div class="empty-state-icon">🔍</div>
             <h3>No results found</h3>
             <p>Try a different search term</p>
           </div>
-        \`;
+        `;
         stats.style.display = 'none';
         return;
       }
 
       stats.style.display = 'flex';
-      resultCount.textContent = \`\${results.length} result\${results.length !== 1 ? 's' : ''}\`;
-      searchTimeEl.textContent = \`\${searchTime}ms\`;
+      resultCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
+      searchTimeEl.textContent = `${searchTime}ms`;
 
       container.innerHTML = '<div class="results-grid"></div>';
       const grid = container.querySelector('.results-grid');
@@ -339,23 +392,23 @@
       const favicon = getFavicon(link.domain);
       const type = link.type === 'movie' ? '🎬 Movie' : '📺 Show';
 
-      card.innerHTML = \`
+      card.innerHTML = `
         <div class="result-header">
-          <img src="\${favicon}" class="favicon" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><rect width=%2224%22 height=%2224%22 fill=%22%23333%22/></svg>'">
-          <div class="result-title">\${escapeHtml(link.title)}</div>
+          <img src="${favicon}" class="favicon" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><rect width=%2224%22 height=%2224%22 fill=%22%23333%22/></svg>'">
+          <div class="result-title">${escapeHtml(link.title)}</div>
         </div>
 
         <div class="result-meta">
-          <span class="meta-badge">\${type}</span>
-          <span class="meta-badge">\${link.domain}</span>
+          <span class="meta-badge">${type}</span>
+          <span class="meta-badge">${link.domain}</span>
         </div>
 
-        <button class="btn-load-screenshot" onclick="loadScreenshot(event, '\${link.url}')">
+        <button class="btn-load-screenshot" onclick="loadScreenshot(event, '${link.url}')">
           📸 Load Preview
         </button>
 
-        <div id="screenshot-\${hashCode(link.url)}" class="screenshot-placeholder"></div>
-      \`;
+        <div id="screenshot-${hashCode(link.url)}" class="screenshot-placeholder"></div>
+      `;
 
       return card;
     }
@@ -365,7 +418,7 @@
       event.stopPropagation();
       const button = event.target;
       const hash = hashCode(url);
-      const placeholder = document.getElementById(\`screenshot-\${hash}\`);
+      const placeholder = document.getElementById(`screenshot-${hash}`);
 
       button.disabled = true;
       button.textContent = '⏳ Loading...';
@@ -382,14 +435,14 @@
         const data = await response.json();
 
         button.remove();
-        placeholder.innerHTML = \`
-          <div class="screenshot-container" onclick="window.open('\${url}', '_blank')">
-            <img src="\${data.screenshot}" alt="Screenshot">
+        placeholder.innerHTML = `
+          <div class="screenshot-container" onclick="window.open('${url}', '_blank')">
+            <img src="${data.screenshot}" alt="Screenshot">
             <div class="screenshot-overlay">
               <div style="color: white; font-weight: bold;">↗ Open Link</div>
             </div>
           </div>
-        \`;
+        `;
       } catch (err) {
         button.disabled = false;
         button.textContent = '❌ Failed - Try Again';
@@ -400,7 +453,7 @@
     // Get favicon URL (cached)
     function getFavicon(domain) {
       if (!faviconCache[domain]) {
-        faviconCache[domain] = \`https://www.google.com/s2/favicons?domain=\${domain}&sz=64\`;
+        faviconCache[domain] = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
       }
       return faviconCache[domain];
     }
@@ -411,13 +464,34 @@
       const stats = document.getElementById('searchStats');
 
       stats.style.display = 'none';
-      container.innerHTML = \`
+      container.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">🎬</div>
           <h3>Start searching</h3>
           <p>Type a movie or show name to find where it's streaming</p>
+          <p style="margin-top: 1em; font-size: 0.9em; color: #666;">
+            Database contains ${allLinks.length} links
+          </p>
         </div>
-      \`;
+      `;
+    }
+
+    // Show error state
+    function showErrorState(message) {
+      const container = document.getElementById('resultsContainer');
+      const stats = document.getElementById('searchStats');
+
+      stats.style.display = 'none';
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">⚠️</div>
+          <h3>Error loading links</h3>
+          <p>${message}</p>
+          <p style="margin-top: 1em;">
+            <a href="/dashboard" style="color: #667eea;">Check the dashboard</a>
+          </p>
+        </div>
+      `;
     }
 
     // Utility functions

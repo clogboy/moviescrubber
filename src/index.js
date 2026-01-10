@@ -10,7 +10,7 @@ import { startServer } from "./server.js";
 import { log } from "./logger.js";
 import { getPopularTitles } from "./trakt.js";
 import { googleSearchMultiDomain } from "./google.js";
-import { isLinkAvailable } from "./linkCheck.js";
+import { isLinkAvailable, shouldCheckLink } from "./linkCheck.js";
 import * as db from "./db.js";
 
 let database = null;
@@ -21,19 +21,44 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-// STAP 0: Cleanup - verwijder dode links
+// STAP 0: Cleanup - verwijder dode links EN filter unwanted links
 async function cleanupDeadLinks() {
-  log("=== PHASE 0: Cleanup dead links ===");
+  log("=== PHASE 0: Cleanup dead links & apply filters ===");
 
-  const removed = db.removeDeadLinks();
+  // First remove dead links
+  const removedDead = db.removeDeadLinks();
 
-  if (removed > 0) {
-    log(`✓ Removed ${removed} dead links (will be re-queried if still popular)`);
-  } else {
-    log("No dead links to remove");
+  if (removedDead > 0) {
+    log(`✓ Removed ${removedDead} dead links`);
   }
 
-  return removed;
+  // Then remove filtered links (Netflix blacklist)
+  const allLinks = db.getAllLinks();
+  let removedFiltered = 0;
+
+  for (const link of allLinks) {
+    if (!shouldCheckLink(link.url, link.domain)) {
+      // Remove from database
+      db.query('DELETE FROM links WHERE url = ?', [link.url]);
+
+      // Also remove query entry so it can be re-queried
+      db.query('DELETE FROM queries WHERE trakt_id = ?', [link.trakt_id]);
+
+      removedFiltered++;
+      log(`Filtered out: ${link.url}`);
+    }
+  }
+
+  if (removedFiltered > 0) {
+    log(`✓ Removed ${removedFiltered} filtered links (blacklist/whitelist)`);
+    persist();
+  }
+
+  if (removedDead === 0 && removedFiltered === 0) {
+    log("No links to remove");
+  }
+
+  return removedDead + removedFiltered;
 }
 
 // STAP 1: Bepaal waar we zijn in de cycle en verzamel candidates
@@ -101,7 +126,7 @@ async function executeQueries(candidates) {
     log(`[${executed}/${candidates.length}] Searching: "${title.title}"`);
 
     try {
-      // ÉÉN query voor alle domeinen tegelijk
+      // ÉÉN query voor alle domeinen tegelijk (met filters)
       const results = await googleSearchMultiDomain(title.title, DOMAINS);
 
       // Markeer deze title als gezocht (ongeacht resultaat)
@@ -179,7 +204,7 @@ function saveResults(results) {
   return { saved, skipped };
 }
 
-// STAP 4: Link checker (voor bestaande links)
+// STAP 4: Link checker (voor bestaande links, met filters)
 async function checkLinks(limit = 50) {
   log("\n=== PHASE 4: Check link availability ===");
 
@@ -187,7 +212,7 @@ async function checkLinks(limit = 50) {
 
   if (links.length === 0) {
     log("No links to check");
-    return { checked: 0, available: 0, dead: 0 };
+    return { checked: 0, available: 0, dead: 0, filtered: 0 };
   }
 
   log(`Checking ${links.length} links...`);
@@ -195,9 +220,19 @@ async function checkLinks(limit = 50) {
   let checked = 0;
   let available = 0;
   let dead = 0;
+  let filtered = 0;
 
   for (const link of links) {
     log(`[${checked + 1}/${links.length}] ${link.url}`);
+
+    // First check if link passes filters
+    if (!shouldCheckLink(link.url, link.domain)) {
+      db.markLinkUnavailable(link.url);
+      log(`  ⊘ Filtered (blacklist/whitelist)`);
+      filtered++;
+      checked++;
+      continue;
+    }
 
     try {
       const isAvailable = await isLinkAvailable(link.url);
@@ -224,9 +259,9 @@ async function checkLinks(limit = 50) {
   }
 
   persist();
-  log(`\n✓ Checked ${checked} links: ${available} available, ${dead} dead`);
+  log(`\n✓ Checked ${checked} links: ${available} available, ${dead} dead, ${filtered} filtered`);
 
-  return { checked, available, dead };
+  return { checked, available, dead, filtered };
 }
 
 // Hoofdprogramma
@@ -246,7 +281,7 @@ async function run(mode = 'search') {
   if (mode === 'search') {
     // SEARCH MODE: cleanup → find candidates → query → save
 
-    // Stap 0: Verwijder dode links
+    // Stap 0: Verwijder dode links + apply filters
     await cleanupDeadLinks();
 
     // Stap 1-3: Verzamel en query
@@ -273,7 +308,7 @@ async function run(mode = 'search') {
     }
 
   } else if (mode === 'check') {
-    // CHECK MODE: controleer bestaande links
+    // CHECK MODE: controleer bestaande links (met filters)
     const result = await checkLinks(100);
 
     log("\n========================================");
@@ -281,6 +316,7 @@ async function run(mode = 'search') {
     log(`Links checked: ${result.checked}`);
     log(`Still available: ${result.available}`);
     log(`Dead links found: ${result.dead}`);
+    log(`Filtered out: ${result.filtered}`);
     log("\nTip: Run 'search' mode to remove dead links and re-query");
     log("========================================");
 
@@ -307,6 +343,7 @@ async function run(mode = 'search') {
     log("=== SUMMARY ===");
     log(`Search: ${candidates.length} queries`);
     log(`Check: ${checkResult.checked} links verified`);
+    log(`Filtered: ${checkResult.filtered} links`);
     log("========================================");
   }
 

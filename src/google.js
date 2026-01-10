@@ -1,15 +1,16 @@
 import { GOOGLE_API_KEY, GOOGLE_CSE_ID } from "./config.js";
+import { buildFilteredSearchQuery, shouldCheckLink } from "./filters.js";
 
-// ÉÉN query voor ALLE domains
-// Google syntax: "title" (site:netflix.com OR site:primevideo.com OR ...)
+// ÉÉN query voor ALLE domains met filters
 export async function googleSearchMultiDomain(title, domains) {
   if (!domains || domains.length === 0) {
     throw new Error("No domains provided");
   }
 
-  // Bouw de query: "title" (site:domain1 OR site:domain2 OR ...)
-  const sitePart = domains.map(d => `site:${d}`).join(" OR ");
-  const q = `"${title}" (${sitePart})`;
+  // Build query using filter system
+  const q = buildFilteredSearchQuery(title, domains);
+
+  console.log(`Google query: ${q}`);
 
   const url =
     `https://www.googleapis.com/customsearch/v1` +
@@ -31,36 +32,44 @@ export async function googleSearchMultiDomain(title, domains) {
       return [];
     }
 
-    // Parse resultaten en bepaal welk domain
-    const results = data.items.map(item => {
-      const url = item.link;
+    // Parse resultaten en apply filters
+    const results = data.items
+      .map(item => {
+        const url = item.link;
 
-      // Bepaal welk domain dit resultaat is
-      let matchedDomain = null;
-      for (const domain of domains) {
-        if (url.includes(domain)) {
-          matchedDomain = domain;
-          break;
+        // Bepaal welk domain dit resultaat is
+        let matchedDomain = null;
+        for (const domain of domains) {
+          if (url.includes(domain)) {
+            matchedDomain = domain;
+            break;
+          }
         }
-      }
 
-      // Fallback: extract domain uit URL
-      if (!matchedDomain) {
-        try {
-          const urlObj = new URL(url);
-          matchedDomain = urlObj.hostname;
-        } catch (err) {
-          matchedDomain = 'unknown';
+        // Fallback: extract domain uit URL
+        if (!matchedDomain) {
+          try {
+            const urlObj = new URL(url);
+            matchedDomain = urlObj.hostname;
+          } catch (err) {
+            matchedDomain = 'unknown';
+          }
         }
-      }
 
-      return {
-        url: url,
-        page_title: item.title,
-        domain: matchedDomain
-      };
-    });
+        // Apply filters (double-check, in case Google returned something we don't want)
+        if (!shouldCheckLink(url, matchedDomain)) {
+          return null;
+        }
 
+        return {
+          url: url,
+          page_title: item.title,
+          domain: matchedDomain
+        };
+      })
+      .filter(r => r !== null); // Remove filtered items
+
+    console.log(`Found ${results.length} results after filtering`);
     return results;
 
   } catch (err) {

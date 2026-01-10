@@ -8,6 +8,17 @@ import { takeScreenshot } from "./screenshot.js";
 export function startServer(port = 3000) {
   const server = http.createServer(async (req, res) => {
 
+    // Enable CORS for all requests
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
     // Frontend search interface
     if (req.url === "/" || req.url === "/search") {
       const htmlPath = path.resolve("public/index.html");
@@ -28,13 +39,33 @@ export function startServer(port = 3000) {
       return;
     }
 
-    // API: Get all links
+    // API: Get all links (with Netflix filters)
     if (req.url === "/api/links") {
       try {
-        const links = getAllLinks();
+        let links = getAllLinks();
+
+        // Filter out Netflix tudun newsletter
+        links = links.filter(link => {
+          if (link.domain === 'netflix.com') {
+            // Blacklist tudun newsletter
+            if (link.url.includes('tudum.com') || link.url.includes('newsletter')) {
+              console.log(`Filtering out: ${link.url}`);
+              return false;
+            }
+            // Only allow actual title pages
+            if (!link.url.includes('/title/') && !link.url.includes('/nl/')) {
+              console.log(`Filtering out non-title: ${link.url}`);
+              return false;
+            }
+          }
+          return true;
+        });
+
+        console.log(`API: Returning ${links.length} links (filtered)`);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(links));
       } catch (err) {
+        console.error('Error fetching links:', err);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message }));
       }
@@ -125,7 +156,7 @@ export function startServer(port = 3000) {
   });
 }
 
-// Dashboard HTML (kept for backwards compatibility)
+// Dashboard HTML with database viewer
 function getDashboardHTML() {
   return `<!doctype html>
 <html>
@@ -142,7 +173,7 @@ function getDashboardHTML() {
       color: #eee;
     }
     .container {
-      max-width: 1400px;
+      max-width: 1600px;
       margin: 0 auto;
       padding: 1em;
     }
@@ -320,6 +351,44 @@ function getDashboardHTML() {
       background: linear-gradient(90deg, #9c27b0, #4a9eff);
       transition: width 0.3s;
     }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #222;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    th {
+      background: #333;
+      padding: 0.75em;
+      text-align: left;
+      color: #4a9eff;
+      font-weight: bold;
+    }
+    td {
+      padding: 0.75em;
+      border-top: 1px solid #333;
+    }
+    tr:hover {
+      background: #2a2a2a;
+    }
+    .link-url {
+      color: #888;
+      font-size: 0.85em;
+      word-break: break-all;
+    }
+    .filter-box {
+      margin-bottom: 1em;
+    }
+    .filter-box input {
+      width: 100%;
+      padding: 0.75em;
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #eee;
+      font-size: 1em;
+    }
   </style>
 </head>
 <body>
@@ -333,12 +402,26 @@ function getDashboardHTML() {
 
     <div class="tabs">
       <button class="tab active" onclick="showTab('overview')">Overview</button>
+      <button class="tab" onclick="showTab('database')">Database</button>
       <button class="tab" onclick="showTab('logs')">Logs</button>
     </div>
 
     <div id="overview-tab" class="tab-content active">
       <div id="stats-content">
         <p>Loading statistics...</p>
+      </div>
+    </div>
+
+    <div id="database-tab" class="tab-content">
+      <div class="filter-box">
+        <input type="text" id="dbFilter" placeholder="Filter by title or domain..." oninput="filterDatabase()">
+      </div>
+      <div class="actions">
+        <button onclick="loadDatabase()">🔄 Refresh</button>
+        <button onclick="exportDatabase()">💾 Export JSON</button>
+      </div>
+      <div id="database-content">
+        <p>Loading database...</p>
       </div>
     </div>
 
@@ -353,6 +436,7 @@ function getDashboardHTML() {
 
   <script>
     let currentTab = 'overview';
+    let allDatabaseLinks = [];
 
     function showTab(tab) {
       currentTab = tab;
@@ -364,6 +448,8 @@ function getDashboardHTML() {
 
       if (tab === 'overview') {
         loadStats();
+      } else if (tab === 'database') {
+        loadDatabase();
       } else if (tab === 'logs') {
         loadLogs();
       }
@@ -377,6 +463,97 @@ function getDashboardHTML() {
       } catch (err) {
         document.getElementById('output').textContent = 'Error loading logs';
       }
+    }
+
+    async function loadDatabase() {
+      try {
+        const links = await fetch('/api/links').then(r => r.json());
+        allDatabaseLinks = links;
+        renderDatabase(links);
+      } catch (err) {
+        document.getElementById('database-content').innerHTML =
+          '<p style="color: #f44336;">Error loading database: ' + err.message + '</p>';
+      }
+    }
+
+    function renderDatabase(links) {
+      const container = document.getElementById('database-content');
+
+      if (links.length === 0) {
+        container.innerHTML = '<p>No links in database</p>';
+        return;
+      }
+
+      const html = \`
+        <p style="color: #888; margin-bottom: 1em;">Showing \${links.length} links</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Type</th>
+              <th>Domain</th>
+              <th>Status</th>
+              <th>URL</th>
+            </tr>
+          </thead>
+          <tbody>
+            \${links.map(link => \`
+              <tr>
+                <td><strong>\${escapeHtml(link.title)}</strong></td>
+                <td>\${link.type === 'movie' ? '🎬' : '📺'} \${link.type}</td>
+                <td>\${link.domain}</td>
+                <td>\${getStatusBadge(link)}</td>
+                <td><a href="\${link.url}" target="_blank" class="link-url">\${link.url}</a></td>
+              </tr>
+            \`).join('')}
+          </tbody>
+        </table>
+      \`;
+
+      container.innerHTML = html;
+    }
+
+    function getStatusBadge(link) {
+      if (link.last_checked === 0) {
+        return '<span style="color: #888;">⏳ Unchecked</span>';
+      } else if (link.available === 1) {
+        return '<span style="color: #4caf50;">✓ Available</span>';
+      } else {
+        return '<span style="color: #f44336;">✗ Dead</span>';
+      }
+    }
+
+    function filterDatabase() {
+      const query = document.getElementById('dbFilter').value.toLowerCase();
+      if (!query) {
+        renderDatabase(allDatabaseLinks);
+        return;
+      }
+
+      const filtered = allDatabaseLinks.filter(link =>
+        link.title.toLowerCase().includes(query) ||
+        link.domain.toLowerCase().includes(query) ||
+        link.url.toLowerCase().includes(query)
+      );
+
+      renderDatabase(filtered);
+    }
+
+    function exportDatabase() {
+      const dataStr = JSON.stringify(allDatabaseLinks, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'moviescrubber-export-' + Date.now() + '.json';
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     async function loadStats() {
