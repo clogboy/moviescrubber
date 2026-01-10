@@ -39,13 +39,44 @@
     }
 
     .nav {
-      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
       margin-bottom: 1rem;
     }
 
     .nav a {
       color: #667eea;
       text-decoration: none;
+    }
+
+    .btn-refresh {
+      padding: 0.5rem 1rem;
+      background: #2a2a2a;
+      color: #eee;
+      border: 1px solid #333;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-refresh:hover {
+      background: #333;
+      border-color: #667eea;
+    }
+
+    .btn-refresh:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-refresh.loading {
+      animation: pulse 1.5s infinite;
     }
 
     .search-box {
@@ -86,6 +117,12 @@
       text-align: center;
       padding: 2rem;
       color: #888;
+    }
+
+    .section-title {
+      font-size: 1.2rem;
+      color: #667eea;
+      margin-bottom: 1rem;
     }
 
     .results-grid {
@@ -149,6 +186,11 @@
       background: #2a2a2a;
       border-radius: 20px;
       color: #888;
+    }
+
+    .meta-badge.popular {
+      background: #667eea;
+      color: white;
     }
 
     .result-domain {
@@ -217,6 +259,11 @@
       background: #764ba2;
     }
 
+    .btn-load-screenshot:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .empty-state {
       text-align: center;
       padding: 4rem 2rem;
@@ -245,6 +292,15 @@
     .loading {
       animation: pulse 2s infinite;
     }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .btn-refresh.loading .icon {
+      animation: spin 1s linear infinite;
+    }
   </style>
 </head>
 <body>
@@ -256,6 +312,10 @@
 
     <div class="nav">
       <a href="/dashboard">→ Dashboard</a>
+      <button id="btnRefresh" class="btn-refresh" onclick="refreshData()">
+        <span class="icon">🔄</span>
+        <span class="text">Refresh</span>
+      </button>
     </div>
 
     <div id="debugInfo" class="debug-info" style="display: none;"></div>
@@ -291,6 +351,34 @@
         (data ? '<br><pre>' + JSON.stringify(data, null, 2).substring(0, 200) + '...</pre>' : '');
     }
 
+    // Refresh data
+    window.refreshData = async function() {
+      const btn = document.getElementById('btnRefresh');
+      const text = btn.querySelector('.text');
+      const originalText = text.textContent;
+
+      btn.disabled = true;
+      btn.classList.add('loading');
+      text.textContent = 'Refreshing...';
+
+      try {
+        await loadAllLinks();
+        text.textContent = '✓ Refreshed!';
+        setTimeout(() => {
+          text.textContent = originalText;
+          btn.classList.remove('loading');
+          btn.disabled = false;
+        }, 1500);
+      } catch (err) {
+        text.textContent = '✗ Failed';
+        setTimeout(() => {
+          text.textContent = originalText;
+          btn.classList.remove('loading');
+          btn.disabled = false;
+        }, 2000);
+      }
+    };
+
     // Load all links on startup
     async function loadAllLinks() {
       try {
@@ -298,11 +386,11 @@
         const response = await fetch('/api/links');
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          throw new Error('HTTP ${response.status}: ${response.statusText}');
         }
 
         allLinks = await response.json();
-        debug(`Loaded ${allLinks.length} links`, allLinks[0]);
+        debug('Loaded ${allLinks.length} links', allLinks[0]);
         console.log('All links:', allLinks);
 
         if (allLinks.length === 0) {
@@ -311,12 +399,52 @@
           document.getElementById('debugInfo').style.display = 'none';
         }
 
-        showEmptyState();
+        // Re-render current view
+        const query = document.getElementById('searchInput').value.trim();
+        if (!query) {
+          showTopPopular();
+        } else {
+          performSearch(query);
+        }
       } catch (err) {
         console.error('Failed to load links:', err);
         debug('❌ Error loading links: ' + err.message);
         showErrorState(err.message);
       }
+    }
+
+    // Show top 10 most popular (available) links
+    function showTopPopular() {
+      const container = document.getElementById('resultsContainer');
+      const stats = document.getElementById('searchStats');
+
+      // Filter: only available links (checked and working)
+      const availableLinks = allLinks.filter(link => link.available === 1);
+
+      // Sort by title (or you could add a popularity score later)
+      const topLinks = availableLinks.slice(0, 10);
+
+      stats.style.display = 'none';
+
+      if (topLinks.length === 0) {
+        container.innerHTML = '
+          <div class="empty-state">
+            <div class="empty-state-icon">🎬</div>
+            <h3>No verified links yet</h3>
+            <p>Database contains ${allLinks.length} links, but none have been verified as available.</p>
+            <p style="margin-top: 1em; color: #888;">Run check mode to verify links</p>
+          </div>
+        ';
+        return;
+      }
+
+      container.innerHTML = '<div class="section-title">🔥 Top Available Content</div><div class="results-grid"></div>';
+      const grid = container.querySelector('.results-grid');
+
+      topLinks.forEach(link => {
+        const card = createResultCard(link, true);
+        grid.appendChild(card);
+      });
     }
 
     // Search with debounce
@@ -325,7 +453,7 @@
       const query = document.getElementById('searchInput').value.trim();
 
       if (!query) {
-        showEmptyState();
+        showTopPopular();
         return;
       }
 
@@ -339,7 +467,7 @@
       const startTime = Date.now();
       const lowerQuery = query.toLowerCase();
 
-      debug(`Searching for: "${query}" in ${allLinks.length} links`);
+      debug('Searching for: "${query}" in ${allLinks.length} links');
 
       const results = allLinks.filter(link =>
         link.title.toLowerCase().includes(lowerQuery) ||
@@ -347,7 +475,7 @@
       );
 
       const searchTime = Date.now() - startTime;
-      console.log(`Found ${results.length} results in ${searchTime}ms`);
+      console.log('Found ${results.length} results in ${searchTime}ms');
       displayResults(results, searchTime);
     }
 
@@ -359,56 +487,58 @@
       const searchTimeEl = document.getElementById('searchTime');
 
       if (results.length === 0) {
-        container.innerHTML = `
+        container.innerHTML = '
           <div class="empty-state">
             <div class="empty-state-icon">🔍</div>
             <h3>No results found</h3>
             <p>Try a different search term</p>
           </div>
-        `;
+        ';
         stats.style.display = 'none';
         return;
       }
 
       stats.style.display = 'flex';
-      resultCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
-      searchTimeEl.textContent = `${searchTime}ms`;
+      resultCount.textContent = '${results.length} result${results.length !== 1 ? 's' : ''}';
+      searchTimeEl.textContent = '${searchTime}ms';
 
       container.innerHTML = '<div class="results-grid"></div>';
       const grid = container.querySelector('.results-grid');
 
       results.forEach(link => {
-        const card = createResultCard(link);
+        const card = createResultCard(link, false);
         grid.appendChild(card);
       });
     }
 
     // Create result card
-    function createResultCard(link) {
+    function createResultCard(link, isPopular = false) {
       const card = document.createElement('div');
       card.className = 'result-card';
       card.dataset.url = link.url;
 
       const favicon = getFavicon(link.domain);
       const type = link.type === 'movie' ? '🎬 Movie' : '📺 Show';
+      const popularBadge = isPopular ? '<span class="meta-badge popular">🔥 Popular</span>' : '';
 
-      card.innerHTML = `
+      card.innerHTML = '
         <div class="result-header">
           <img src="${favicon}" class="favicon" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><rect width=%2224%22 height=%2224%22 fill=%22%23333%22/></svg>'">
           <div class="result-title">${escapeHtml(link.title)}</div>
         </div>
 
         <div class="result-meta">
+          ${popularBadge}
           <span class="meta-badge">${type}</span>
           <span class="meta-badge">${link.domain}</span>
         </div>
 
-        <button class="btn-load-screenshot" onclick="loadScreenshot(event, '${link.url}')">
+        <button class="btn-load-screenshot" onclick="loadScreenshot(event, '${escapeAttr(link.url)}')">
           📸 Load Preview
         </button>
 
         <div id="screenshot-${hashCode(link.url)}" class="screenshot-placeholder"></div>
-      `;
+      ';
 
       return card;
     }
@@ -418,10 +548,12 @@
       event.stopPropagation();
       const button = event.target;
       const hash = hashCode(url);
-      const placeholder = document.getElementById(`screenshot-${hash}`);
+      const placeholder = document.getElementById('screenshot-${hash}');
 
       button.disabled = true;
-      button.textContent = '⏳ Loading...';
+      button.textContent = '⏳ Loading screenshot...';
+
+      console.log('Screenshot request for:', url);
 
       try {
         const response = await fetch('/api/screenshot', {
@@ -430,50 +562,38 @@
           body: JSON.stringify({ url })
         });
 
-        if (!response.ok) throw new Error('Screenshot failed');
+        console.log('Screenshot response:', response.status);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Screenshot failed');
+        }
 
         const data = await response.json();
+        console.log('Screenshot received, size:', data.screenshot.length);
 
         button.remove();
-        placeholder.innerHTML = `
-          <div class="screenshot-container" onclick="window.open('${url}', '_blank')">
+        placeholder.innerHTML = '
+          <div class="screenshot-container" onclick="window.open('${escapeAttr(url)}', '_blank')">
             <img src="${data.screenshot}" alt="Screenshot">
             <div class="screenshot-overlay">
               <div style="color: white; font-weight: bold;">↗ Open Link</div>
             </div>
           </div>
-        `;
+        ';
       } catch (err) {
+        console.error('Screenshot error:', err);
         button.disabled = false;
         button.textContent = '❌ Failed - Try Again';
-        console.error('Screenshot error:', err);
       }
     };
 
     // Get favicon URL (cached)
     function getFavicon(domain) {
       if (!faviconCache[domain]) {
-        faviconCache[domain] = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+        faviconCache[domain] = 'https://www.google.com/s2/favicons?domain=${domain}&sz=64';
       }
       return faviconCache[domain];
-    }
-
-    // Show empty state
-    function showEmptyState() {
-      const container = document.getElementById('resultsContainer');
-      const stats = document.getElementById('searchStats');
-
-      stats.style.display = 'none';
-      container.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">🎬</div>
-          <h3>Start searching</h3>
-          <p>Type a movie or show name to find where it's streaming</p>
-          <p style="margin-top: 1em; font-size: 0.9em; color: #666;">
-            Database contains ${allLinks.length} links
-          </p>
-        </div>
-      `;
     }
 
     // Show error state
@@ -482,7 +602,7 @@
       const stats = document.getElementById('searchStats');
 
       stats.style.display = 'none';
-      container.innerHTML = `
+      container.innerHTML = '
         <div class="empty-state">
           <div class="empty-state-icon">⚠️</div>
           <h3>Error loading links</h3>
@@ -491,7 +611,7 @@
             <a href="/dashboard" style="color: #667eea;">Check the dashboard</a>
           </p>
         </div>
-      `;
+      ';
     }
 
     // Utility functions
@@ -499,6 +619,10 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    function escapeAttr(text) {
+      return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function hashCode(str) {

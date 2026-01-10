@@ -1,6 +1,14 @@
 import { GOOGLE_API_KEY, GOOGLE_CSE_ID } from "./config.js";
 import { buildFilteredSearchQuery, shouldCheckLink } from "./filters.js";
 
+// Custom error class for quota exceeded
+export class QuotaExceededError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'QuotaExceededError';
+  }
+}
+
 // ÉÉN query voor ALLE domains met filters
 export async function googleSearchMultiDomain(title, domains) {
   if (!domains || domains.length === 0) {
@@ -25,7 +33,23 @@ export async function googleSearchMultiDomain(title, domains) {
 
     // Check voor API errors
     if (data.error) {
-      throw new Error(`Google API error: ${data.error.message}`);
+      const errorMessage = data.error.message;
+      const errorCode = data.error.code;
+
+      // Check for quota exceeded errors
+      if (errorCode === 429 ||
+          errorMessage.includes('quota') ||
+          errorMessage.includes('Quota') ||
+          errorMessage.includes('limit exceeded') ||
+          errorMessage.includes('rateLimitExceeded')) {
+
+        console.error('❌ Google API Quota Exceeded!');
+        console.error('Daily limit of 100 queries reached.');
+        throw new QuotaExceededError('Google API quota exceeded. Daily limit: 100 queries. Try again tomorrow.');
+      }
+
+      // Other API errors
+      throw new Error(`Google API error (${errorCode}): ${errorMessage}`);
     }
 
     if (!data.items || data.items.length === 0) {
@@ -73,6 +97,11 @@ export async function googleSearchMultiDomain(title, domains) {
     return results;
 
   } catch (err) {
+    // Re-throw QuotaExceededError as-is
+    if (err instanceof QuotaExceededError) {
+      throw err;
+    }
+
     console.error('Google search error:', err.message);
     throw err;
   }
@@ -86,7 +115,11 @@ export async function testGoogleAPI() {
     console.log(`Found ${results.length} results`);
     return true;
   } catch (err) {
-    console.error("✗ Google API test failed:", err.message);
+    if (err instanceof QuotaExceededError) {
+      console.error("✗ Google API quota exceeded");
+    } else {
+      console.error("✗ Google API test failed:", err.message);
+    }
     return false;
   }
 }

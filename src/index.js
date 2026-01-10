@@ -9,7 +9,7 @@ import { MAX_QUERIES, DOMAINS } from "./config.js";
 import { startServer } from "./server.js";
 import { log } from "./logger.js";
 import { getPopularTitles } from "./trakt.js";
-import { googleSearchMultiDomain } from "./google.js";
+import { googleSearchMultiDomain, QuotaExceededError } from "./google.js";
 import { isLinkAvailable, shouldCheckLink } from "./linkCheck.js";
 import * as db from "./db.js";
 
@@ -120,6 +120,7 @@ async function executeQueries(candidates) {
   let executed = 0;
   let totalLinksFound = 0;
   const allResults = [];
+  let quotaExceeded = false;
 
   for (const title of candidates) {
     executed++;
@@ -158,15 +159,33 @@ async function executeQueries(candidates) {
       persist();
 
     } catch (err) {
-      log(`  ERROR: ${err.message}`);
-      // Markeer toch als gezocht, anders blijven we vastlopen op foutieve queries
-      db.markAsQueried(title.trakt_id, title.title);
-      persist();
+      if (err instanceof QuotaExceededError) {
+        log(`\n❌ QUOTA EXCEEDED: ${err.message}`);
+        log(`Stopping search after ${executed} queries.`);
+        log(`${candidates.length - executed} candidates remain for next run.`);
+        quotaExceeded = true;
+
+        // Still mark this one as queried to avoid repeating it
+        db.markAsQueried(title.trakt_id, title.title);
+        persist();
+
+        break; // Stop searching
+      } else {
+        log(`  ERROR: ${err.message}`);
+        // Markeer toch als gezocht, anders blijven we vastlopen op foutieve queries
+        db.markAsQueried(title.trakt_id, title.title);
+        persist();
+      }
     }
   }
 
+  if (quotaExceeded) {
+    log(`\n⚠️  Google API quota exceeded. Results so far will be saved.`);
+    log(`Tomorrow's run will continue from where we left off.`);
+  }
+
   log(`\n✓ Executed ${executed} queries, found ${totalLinksFound} links total`);
-  return allResults;
+  return { results: allResults, quotaExceeded };
 }
 
 // STAP 3: Sla resultaten op (deduplicate op URL)
@@ -294,16 +313,22 @@ async function run(mode = 'search') {
       log("  - The cycle will auto-reset after 7 days");
       log("\nTip: Run 'check' mode to verify existing links");
     } else {
-      const results = await executeQueries(candidates);
+      const { results, quotaExceeded } = await executeQueries(candidates);
       const stats = saveResults(results);
 
       log("\n========================================");
       log("=== SUMMARY ===");
       log(`Candidates found: ${candidates.length}`);
-      log(`Queries executed: ${candidates.length}`);
+      log(`Queries executed: ${results.length > 0 ? 'Partial' : candidates.length}`);
       log(`Links found: ${results.length}`);
       log(`Links saved: ${stats.saved}`);
       log(`Duplicates skipped: ${stats.skipped}`);
+
+      if (quotaExceeded) {
+        log(`\n⚠️  QUOTA EXCEEDED - Stopped early`);
+        log(`Run again tomorrow to continue.`);
+      }
+
       log("========================================");
     }
 
@@ -327,11 +352,17 @@ async function run(mode = 'search') {
     const candidates = await collectCandidates();
 
     if (candidates.length > 0) {
-      const results = await executeQueries(candidates);
+      const { results, quotaExceeded } = await executeQueries(candidates);
       const stats = saveResults(results);
 
       log("\n--- Search phase completed ---");
       log(`Queries: ${candidates.length}, Links saved: ${stats.saved}`);
+
+      if (quotaExceeded) {
+        log(`⚠️  Quota exceeded during search phase`);
+        log(`Skipping check phase to preserve data.`);
+        return;
+      }
     } else {
       log("\n✓ No new titles to query at current offset");
     }
