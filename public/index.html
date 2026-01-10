@@ -140,6 +140,9 @@
       cursor: pointer;
       position: relative;
       overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+      display: block;
     }
 
     .result-card:hover {
@@ -148,8 +151,19 @@
       box-shadow: 0 8px 24px rgba(102, 126, 234, 0.15);
     }
 
-    .result-card.loading-screenshot {
-      opacity: 0.6;
+    .result-card::after {
+      content: '→';
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      font-size: 1.5rem;
+      color: #667eea;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .result-card:hover::after {
+      opacity: 1;
     }
 
     .result-header {
@@ -172,13 +186,22 @@
       font-weight: 600;
       line-height: 1.4;
       color: #fff;
+      margin-bottom: 0.5rem;
+    }
+
+    .page-title {
+      font-size: 0.9rem;
+      color: #888;
+      line-height: 1.4;
+      margin-top: 0.5rem;
     }
 
     .result-meta {
       display: flex;
       gap: 0.75rem;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
       font-size: 0.85rem;
+      flex-wrap: wrap;
     }
 
     .meta-badge {
@@ -196,72 +219,10 @@
     .result-domain {
       color: #667eea;
       font-size: 0.9rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .screenshot-container {
-      margin-top: 1rem;
-      border-radius: 8px;
-      overflow: hidden;
-      border: 1px solid #333;
-      cursor: pointer;
-      position: relative;
-    }
-
-    .screenshot-container img {
-      width: 100%;
-      display: block;
-      transition: transform 0.3s;
-    }
-
-    .screenshot-container:hover img {
-      transform: scale(1.05);
-    }
-
-    .screenshot-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
+      margin-top: 0.75rem;
       display: flex;
       align-items: center;
-      justify-content: center;
-      opacity: 0;
-      transition: opacity 0.3s;
-    }
-
-    .screenshot-container:hover .screenshot-overlay {
-      opacity: 1;
-    }
-
-    .screenshot-loading {
-      text-align: center;
-      padding: 2rem;
-      color: #888;
-      font-size: 0.9rem;
-    }
-
-    .btn-load-screenshot {
-      width: 100%;
-      padding: 0.75rem;
-      background: #667eea;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      transition: all 0.3s;
-    }
-
-    .btn-load-screenshot:hover {
-      background: #764ba2;
-    }
-
-    .btn-load-screenshot:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      gap: 0.5rem;
     }
 
     .empty-state {
@@ -421,7 +382,7 @@
       // Filter: only available links (checked and working)
       const availableLinks = allLinks.filter(link => link.available === 1);
 
-      // Sort by title (or you could add a popularity score later)
+      // Sort by title
       const topLinks = availableLinks.slice(0, 10);
 
       stats.style.display = 'none';
@@ -471,6 +432,7 @@
 
       const results = allLinks.filter(link =>
         link.title.toLowerCase().includes(lowerQuery) ||
+        (link.page_title && link.page_title.toLowerCase().includes(lowerQuery)) ||
         link.domain.toLowerCase().includes(lowerQuery)
       );
 
@@ -513,18 +475,27 @@
 
     // Create result card
     function createResultCard(link, isPopular = false) {
-      const card = document.createElement('div');
+      const card = document.createElement('a');
       card.className = 'result-card';
-      card.dataset.url = link.url;
+      card.href = link.url;
+      card.target = '_blank';
+      card.rel = 'noopener noreferrer';
 
       const favicon = getFavicon(link.domain);
       const type = link.type === 'movie' ? '🎬 Movie' : '📺 Show';
       const popularBadge = isPopular ? '<span class="meta-badge popular">🔥 Popular</span>' : '';
 
+      // Use page_title if available, otherwise fall back to search title
+      const displayTitle = link.page_title || link.title;
+      const showSearchTitle = link.page_title && link.page_title !== link.title;
+
       card.innerHTML = `
         <div class="result-header">
           <img src="${favicon}" class="favicon" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><rect width=%2224%22 height=%2224%22 fill=%22%23333%22/></svg>'">
-          <div class="result-title">${escapeHtml(link.title)}</div>
+          <div>
+            <div class="result-title">${escapeHtml(displayTitle)}</div>
+            ${showSearchTitle ? '<div class="page-title">Search: ' + escapeHtml(link.title) + '</div>' : ''}
+          </div>
         </div>
 
         <div class="result-meta">
@@ -533,60 +504,13 @@
           <span class="meta-badge">${link.domain}</span>
         </div>
 
-        <button class="btn-load-screenshot" onclick="loadScreenshot(event, '${escapeAttr(link.url)}')">
-          📸 Load Preview
-        </button>
-
-        <div id="screenshot-${hashCode(link.url)}" class="screenshot-placeholder"></div>
+        <div class="result-domain">
+          🔗 Click to open on ${link.domain}
+        </div>
       `;
 
       return card;
     }
-
-    // Load screenshot
-    window.loadScreenshot = async function(event, url) {
-      event.stopPropagation();
-      const button = event.target;
-      const hash = hashCode(url);
-      const placeholder = document.getElementById(`screenshot-${hash}`);
-
-      button.disabled = true;
-      button.textContent = '⏳ Loading screenshot...';
-
-      console.log('Screenshot request for:', url);
-
-      try {
-        const response = await fetch('/api/screenshot', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-
-        console.log('Screenshot response:', response.status);
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Screenshot failed');
-        }
-
-        const data = await response.json();
-        console.log('Screenshot received, size:', data.screenshot.length);
-
-        button.remove();
-        placeholder.innerHTML = `
-          <div class="screenshot-container" onclick="window.open('${escapeAttr(url)}', '_blank')">
-            <img src="${data.screenshot}" alt="Screenshot">
-            <div class="screenshot-overlay">
-              <div style="color: white; font-weight: bold;">↗ Open Link</div>
-            </div>
-          </div>
-        `;
-      } catch (err) {
-        console.error('Screenshot error:', err);
-        button.disabled = false;
-        button.textContent = '❌ Failed - Try Again';
-      }
-    };
 
     // Get favicon URL (cached)
     function getFavicon(domain) {
@@ -619,19 +543,6 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
-    }
-
-    function escapeAttr(text) {
-      return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-
-    function hashCode(str) {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) - hash) + str.charCodeAt(i);
-        hash = hash & hash;
-      }
-      return Math.abs(hash);
     }
 
     // Initialize
