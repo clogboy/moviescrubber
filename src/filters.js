@@ -4,12 +4,12 @@
 export const DOMAIN_FILTERS = {
   'netflix.com': {
     blacklist: [
-      'tudum',           // Newsletter site
-      'newsletter',          // Newsletter pages
-      '/browse',             // Browse pages
-      '/latest',             // Latest pages
-      '/help',               // Help pages
-      '/account'             // Account pages
+//      'tudum',           // Newsletter site
+//      'newsletter',          // Newsletter pages
+//      '/browse',             // Browse pages
+//      '/latest',             // Latest pages
+//      '/help',               // Help pages
+//      '/account'             // Account pages
     ],
     whitelist: [
       '/nl/title/',          // Netherlands region pages
@@ -18,40 +18,11 @@ export const DOMAIN_FILTERS = {
     description: 'Netflix: only title and NL region pages'
   },
 
-  'primevideo.com': {
-    blacklist: [
-      '/storefront/',        // Generic storefront pages
-      '/help/',              // Help pages
-      '/settings/',          // Settings pages
-      '/gp/video/offers'     // Offers/signup pages
-    ],
-    whitelist: [
-      '/detail/',            // Detail pages for content
-      '/gp/video/detail/'    // Alternative detail URL format
-    ],
-    description: 'Prime Video: only detail pages'
-  },
-
-  'disneyplus.com': {
-    blacklist: [
-      '/brand/',             // Brand pages
-      '/help/',              // Help pages
-      '/login',              // Login pages
-      '/sign-up'             // Signup pages
-    ],
-    whitelist: [
-      '/movies/',            // Movie pages
-      '/series/',            // Series pages
-      '/video/'              // Video pages
-    ],
-    description: 'Disney+: only movies/series pages'
-  },
-
   'hbomax.com': {
     blacklist: [
-      '/subscribe',          // Subscribe pages
-      '/help',               // Help pages
-      '/account'             // Account pages
+//      '/subscribe',          // Subscribe pages
+//      '/help',               // Help pages
+//      '/account'             // Account pages
     ],
     whitelist: [
 //      '/series/',            // Series pages
